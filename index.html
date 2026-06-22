@@ -499,6 +499,7 @@ nav.scrolled { background: rgba(255,253,248,0.92); padding: 14px 60px; backdrop-
   width: 100% !important; height: 100% !important;
 }
 #globeCanvas { cursor: grab; opacity: 0; transition: opacity 1.2s ease; }
+#arcCanvas { pointer-events: none; }
 
 /* ===== MAPA (legado) ===== */
 #mapa {
@@ -1264,6 +1265,7 @@ footer {
     <div class="origem-globe fade-up" style="transition-delay:.12s">
       <div class="globe-stage">
         <canvas id="globeCanvas"></canvas>
+        <canvas id="arcCanvas"></canvas>
       </div>
     </div>
   </div>
@@ -1967,181 +1969,218 @@ document.querySelectorAll('.fade-up').forEach(el => observer.observe(el));
 })();
 </script>
 
-<!-- GLOBO PONTILHADO + FLUXOS PARANÁ → EUROPA -->
-<script>
+<!-- GLOBO INTERATIVO (cobe) + arcos Paraná → Europa -->
+<script type="module">
+import createGlobe from 'https://cdn.jsdelivr.net/npm/cobe@0.6.3/+esm';
+
 (() => {
-  const canvas = document.getElementById('globeCanvas');
-  if (!canvas) return;
+  const glCanvas  = document.getElementById('globeCanvas');
+  const arcCanvas = document.getElementById('arcCanvas');
+  const stage     = document.querySelector('.globe-stage');
+  if (!glCanvas || !arcCanvas || !stage || typeof createGlobe !== 'function') return;
 
-  const ctx = canvas.getContext('2d');
-  const wine = '#8A2E42';
-  const origin = [-25.53, -49.21];
-  const europe = [
-    [45.0417, -0.6686], [38.423, -7.534], [41.3466, 1.6998],
-    [43.5616, 11.2058], [51.1657, 10.4515], [46.8182, 8.2275],
-    [47.5162, 14.5501], [50.8503, 4.3517], [52.1326, 5.2913],
-    [51.5072, -0.1276], [53.1424, -7.6921], [56.2639, 9.5018],
-    [60.472, 8.4689], [60.1282, 18.6435], [61.9241, 25.7482],
-    [51.9194, 19.1451], [49.8175, 15.473], [47.1625, 19.5033],
-    [45.1, 15.2], [46.1512, 14.9955], [45.9432, 24.9668],
-    [42.7339, 25.4858], [39.0742, 21.8243], [48.3794, 31.1656]
+  // ---- Calibração da projeção (ajustada ao cobe) ----
+  const DEBUG    = false;
+  const TILT     = 0.32;  // inclinação (mostra hemisfério norte / Europa)
+
+  // ---- Pontos ----
+  const ORIGIN = { lat: -25.53, lng: -49.21, label: 'Vinícola Araucária' };
+  const DESTS = [
+    { lat: 45.0417, lng: -0.6686, label: 'França',   primary: true },
+    { lat: 38.4230, lng: -7.5340, label: 'Portugal' },
+    { lat: 41.3466, lng:  1.6998, label: 'Espanha' },
+    { lat: 43.5616, lng: 11.2058, label: 'Itália' },
+    { lat: 49.9835, lng:  7.9832, label: 'Alemanha' }
   ];
-  const mapSrc = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAACAAQAAAADMzoqnAAAAAXNSR0IArs4c6QAABA5JREFUeNrV179uHEUAx/Hf3JpbF+E2VASBsmVKTBcpKJs3SMEDcDwBiVJAAewYEBUivIHT0uUBIt0YCovKD0CRjUC4QfHYh8hYXu+P25vZ2Zm9c66gMd/GJ/tz82d3bk8GN4SrByYF2366FNTACIAkivVAAazQdnf3MvAlbNUQfOPAdQDvSAimMWhwy4I2g4SU+Kp04ISLpPBAKLxPyic3O/CCi+Y7rUJbiodcpDOFY7CgxCEXmdYD2EYK2s5lApOx5pEDDYCUwM1XdJUwBV11QQMg59kePSCaPAASQMEL2hwo6TJFgxpg+TgC2ymXPbuvc40awr3D1QCFfbH9kcoqAOkZozpQo0aqAGQRKCog/+tjkgbNFEtg2FffBvBGlSxHoAaAa1u6X4PBAwDiR8FFsrQgeUhfJTSALaB9jy5NCybJPn1SVFiWk7ywN+KzhH1aKAuydhGkbEF4lWohLXDXavlyFgHY7LBnLRdlAP6BS5Cc8RfVDXbkwN/oIvmY+6obbNeBP0JwTuMGu9gTzy1Q4RS/cWpfzszeYwd+CAFrtBW/Hur0gLbJGlD+/OjVwe/drfBxkbbg63dndEDfiEBlAd7ac0BPe1D6Jd8dfbLH+RI0OzseFB5s01/M+gMdAeluLOCAuaUA9Lezo/vSgXoCX9rtEiXnp7Q1W/CNyWcd8DXoS6jH/YZ5vAJEWY2dXFQe2TUgaFaNejCzJ98g6HnlVrsE58sDcYqg+9XY75fPqdoh/kRQWiXKg8MWlJQxUFMPjqnyujhFBE7UxIMjyszk0QwQlFsezImsyvUYYYVED2pk6m0Tg8T04Fwjk2kdAwSACqlM6gRRt3vQYAFGX0Ah7Ebx1H+MDRI5ui0QldH4j7FGcm90XdxD2Jg1AOEAVAKhEFXSn4cKUELurIAKwJ3MArypPscQaLhJFICJ0ohjDySAdH8AhDtCiTuMycH8CXzhH9jUACAO5uMhoAwA5i+T6WAKmmAqnLy80wxHqIPFYpqCwxGaYLt4Dyievg5kEoVEUAhs6pqKgFtDQYOuaXypaWKQfIuwwoGSZgfLsu/XAtI8cGN+h7Cc1A5oLOMhwlIPXuhu48AIvsSBkvtV9wsJRKCyYLfq5lTrQMFd1a262oqBck9K1V0YjQg0iEYYgpS1A9GlXQV5cykwm4A7BzVsxQqo7E+zCegO7Ma7yKgsuOcfKbMBwLC8wvVNYDsANYalEpOAa6zpWjTeMKGwEwC1CiQewJc5EKfgy7GmRAZA4vUVGwE2dPM/g0xuAInE/yG5aZ8ISxWGfYigUVbdyBElTHh2uCwGdfCkOLGgQVBh3Ewp+/QK4CDlR5Ws/Zf7yhCf8pH7vinWAvoVCQ6zz0NX5V/6GkAVV+2/5qsJ/gU8bsxpM8IeAQAAAABJRU5ErkJggg==';
 
-  let dpr = 1, size = 0, radius = 0, phi = -1.18, theta = 0.22;
-  let dragging = false, lastX = 0, lastY = 0, vx = 0, vy = 0;
-  let landPoints = [];
+  const actx = arcCanvas.getContext('2d');
+  let size = 0, dpr = Math.min(window.devicePixelRatio || 1, 2);
+  let phi = -1.19;          // posição inicial: Atlântico (Brasil↔Europa) de frente
+  let theta = TILT;
+  let dragPhi = 0, dragTheta = 0;
+  let pointer = null, lastP = null, vel = { phi: 0, theta: 0 };
+  let phiNow = phi, thetaNow = theta;
 
   function resize() {
+    size = stage.clientWidth;
     dpr = Math.min(window.devicePixelRatio || 1, 2);
-    size = Math.round(canvas.offsetWidth || 560);
-    radius = size * 0.39 * dpr;
-    canvas.width = Math.round(size * dpr);
-    canvas.height = Math.round(size * dpr);
+    arcCanvas.width = Math.round(size * dpr);
+    arcCanvas.height = Math.round(size * dpr);
   }
+  resize();
 
-  function vector(lat, lng) {
-    const la = lat * Math.PI / 180;
-    const lo = lng * Math.PI / 180;
-    const c = Math.cos(la);
-    return [c * Math.cos(lo), Math.sin(la), -c * Math.sin(lo)];
-  }
-
-  function rotate(v, elev = 0) {
-    const cp = Math.cos(phi), sp = Math.sin(phi);
-    const ct = Math.cos(theta), st = Math.sin(theta);
-    const x = cp * v[0] + sp * v[2];
-    const y = sp * st * v[0] + ct * v[1] - cp * st * v[2];
-    const z = -sp * ct * v[0] + st * v[1] + cp * ct * v[2];
-    const r = radius * (1 + elev);
-    return {
-      x: canvas.width / 2 + x * r,
-      y: canvas.height / 2 - y * r,
-      front: z > 0,
-      z
-    };
-  }
-
-  function slerp(a, b, t) {
-    let dot = a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
-    dot = Math.max(-1, Math.min(1, dot));
-    const omega = Math.acos(dot);
-    if (omega < 1e-6) return a;
-    const sin = Math.sin(omega);
-    const k0 = Math.sin((1 - t) * omega) / sin;
-    const k1 = Math.sin(t * omega) / sin;
-    return [a[0] * k0 + b[0] * k1, a[1] * k0 + b[1] * k1, a[2] * k0 + b[2] * k1];
-  }
-
-  function buildLandPoints(img) {
-    const off = document.createElement('canvas');
-    off.width = img.width;
-    off.height = img.height;
-    const octx = off.getContext('2d');
-    octx.drawImage(img, 0, 0);
-    const data = octx.getImageData(0, 0, img.width, img.height).data;
-    const pts = [];
-    for (let lat = -82; lat <= 84; lat += 2) {
-      for (let lng = -180; lng < 180; lng += 2) {
-        const x = Math.floor(((lng + 180) / 360) * (img.width - 1));
-        const y = Math.floor(((90 - lat) / 180) * (img.height - 1));
-        const i = (y * img.width + x) * 4;
-        if (data[i] > 80) pts.push(vector(lat, lng));
-      }
-    }
-    return pts;
-  }
-
-  function draw() {
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    if (!dragging) {
-      phi += 0.003 + vx;
-      theta += vy;
-      vx *= 0.95;
-      vy *= 0.95;
-      theta = Math.max(-0.4, Math.min(0.4, theta));
-    }
-
-    const cx = canvas.width / 2, cy = canvas.height / 2;
-    ctx.save();
-    ctx.shadowColor = 'rgba(255,255,255,0.75)';
-    ctx.shadowBlur = 24 * dpr;
-    ctx.fillStyle = '#fff';
-    ctx.beginPath();
-    ctx.arc(cx, cy, radius, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.restore();
-
-    ctx.fillStyle = wine;
-    for (const point of landPoints) {
-      const p = rotate(point);
-      if (!p.front) continue;
-      ctx.globalAlpha = 0.9 * Math.min(1, 0.35 + p.z);
-      ctx.beginPath();
-      ctx.arc(p.x, p.y, 1.25 * dpr, 0, Math.PI * 2);
-      ctx.fill();
-    }
-    ctx.globalAlpha = 1;
-
-    const from = vector(origin[0], origin[1]);
-    ctx.lineCap = 'round';
-    for (let a = 0; a < europe.length; a++) {
-      const to = vector(europe[a][0], europe[a][1]);
-      ctx.strokeStyle = a < 5 ? 'rgba(216,180,95,0.78)' : 'rgba(216,180,95,0.38)';
-      ctx.lineWidth = (a < 5 ? 1.35 : 0.85) * dpr;
-      ctx.beginPath();
-      let started = false;
-      for (let i = 0; i <= 46; i++) {
-        const t = i / 46;
-        const p = rotate(slerp(from, to, t), Math.sin(t * Math.PI) * 0.22);
-        if (!p.front) {
-          started = false;
-          continue;
-        }
-        if (!started) {
-          ctx.moveTo(p.x, p.y);
-          started = true;
-        } else {
-          ctx.lineTo(p.x, p.y);
+  // ---- Globo cobe (pontilhado, sem marcadores próprios) ----
+  const globe = createGlobe(glCanvas, {
+    devicePixelRatio: dpr,
+    width: size * dpr,
+    height: size * dpr,
+    phi: 0,
+    theta: TILT,
+    dark: 0,
+    diffuse: 1.4,
+    mapSamples: 16000,
+    mapBrightness: 0.95,
+    baseColor: [0.50, 0.14, 0.20],
+    markerColor: [0.50, 0.14, 0.20],
+    glowColor: [1.0, 0.99, 0.96],
+    mapBaseBrightness: 0.92,
+    opacity: 1,
+    markers: DEBUG ? [ORIGIN, ...DESTS].map(p => ({ location: [p.lat, p.lng], size: 0.05 })) : [],
+    onRender: (state) => {
+      if (!pointer && !DEBUG) {
+        phi += 0.0016;
+        if (Math.abs(vel.phi) > 0.0001 || Math.abs(vel.theta) > 0.0001) {
+          dragPhi += vel.phi; dragTheta += vel.theta;
+          vel.phi *= 0.94; vel.theta *= 0.94;
         }
       }
-      ctx.stroke();
+      // limita inclinação
+      const t = theta + dragTheta;
+      const tMin = 0.05, tMax = 0.6;
+      if (t < tMin) dragTheta += (tMin - t) * 0.1;
+      if (t > tMax) dragTheta += (tMax - t) * 0.1;
+
+      phiNow = phi + dragPhi;
+      thetaNow = theta + dragTheta;
+      state.phi = phiNow;
+      state.theta = thetaNow;
+      state.width = size * dpr;
+      state.height = size * dpr;
+      drawArcs();
     }
-
-    requestAnimationFrame(draw);
-  }
-
-  canvas.addEventListener('pointerdown', (event) => {
-    dragging = true;
-    lastX = event.clientX;
-    lastY = event.clientY;
-    canvas.style.cursor = 'grabbing';
   });
-  window.addEventListener('pointermove', (event) => {
-    if (!dragging) return;
-    const dx = event.clientX - lastX;
-    const dy = event.clientY - lastY;
-    phi += dx / 300;
-    theta += dy / 1000;
-    vx = dx * 0.00008;
-    vy = dy * 0.00004;
-    lastX = event.clientX;
-    lastY = event.clientY;
+  glCanvas.style.opacity = '1';
+
+  // ---- Projeção 3D -> tela (réplica exata do cobe) ----
+  // Vetor do marcador como no cobe:  V = [cos(lat)cos(lng), sin(lat), -cos(lat)sin(lng)]
+  function locV(lat, lng) {
+    const la = lat * Math.PI / 180, lo = lng * Math.PI / 180, o = Math.cos(la);
+    return [o * Math.cos(lo), Math.sin(la), -o * Math.sin(lo)];
+  }
+  function projV(V, elev = 0) {
+    const cp = Math.cos(phiNow), sp = Math.sin(phiNow);
+    const ct = Math.cos(thetaNow), st = Math.sin(thetaNow);
+    // w = V * M^T  (M = rotação L(theta, phi) do cobe)
+    const wx =  cp * V[0]              + sp * V[2];
+    const wy =  sp * st * V[0] + ct * V[1] - cp * st * V[2];
+    const wz = -sp * ct * V[0] + st * V[1] + cp * ct * V[2];
+    const W = arcCanvas.width, H = arcCanvas.height;
+    const R = 0.8 * (W / 2) * (1 + elev);   // raio do globo no cobe = 0.8 do NDC
+    return { x: W / 2 + wx * R, y: H / 2 - wy * R, front: wz > 0 };
+  }
+  function project(lat, lng, elev = 0) { return projV(locV(lat, lng), elev); }
+  function slerp(a, b, t) {
+    let d = a[0]*b[0] + a[1]*b[1] + a[2]*b[2];
+    d = Math.max(-1, Math.min(1, d));
+    const om = Math.acos(d);
+    if (om < 1e-6) return a;
+    const s = Math.sin(om), k0 = Math.sin((1 - t) * om) / s, k1 = Math.sin(t * om) / s;
+    return [a[0]*k0 + b[0]*k1, a[1]*k0 + b[1]*k1, a[2]*k0 + b[2]*k1];
+  }
+
+  const STEPS = 64;
+  let tStart = performance.now();
+
+  function drawArcs() {
+    actx.clearRect(0, 0, arcCanvas.width, arcCanvas.height);
+    const now = performance.now();
+    const travel = ((now - tStart) / 2600) % 1;
+
+    const oVec = locV(ORIGIN.lat, ORIGIN.lng);
+
+    DESTS.forEach((d, di) => {
+      const dVec = locV(d.lat, d.lng);
+      const pts = [];
+      for (let i = 0; i <= STEPS; i++) {
+        const t = i / STEPS;
+        const elev = Math.sin(t * Math.PI) * 0.32;
+        pts.push({ ...projV(slerp(oVec, dVec, t), elev), t });
+      }
+      // linha base do arco (somente segmentos visíveis)
+      actx.lineCap = 'round';
+      actx.lineWidth = (d.primary ? 2.4 : 1.4) * dpr;
+      for (let i = 1; i < pts.length; i++) {
+        if (!pts[i - 1].front || !pts[i].front) continue;
+        actx.strokeStyle = d.primary ? 'rgba(232,200,121,0.55)' : 'rgba(201,138,58,0.34)';
+        actx.beginPath();
+        actx.moveTo(pts[i - 1].x, pts[i - 1].y);
+        actx.lineTo(pts[i].x, pts[i].y);
+        actx.stroke();
+      }
+      // faísca viajante
+      const sparkT = (travel + di * 0.13) % 1;
+      const si = Math.round(sparkT * STEPS);
+      for (let k = -5; k <= 0; k++) {
+        const idx = si + k;
+        if (idx < 1 || idx >= pts.length) continue;
+        if (!pts[idx - 1].front || !pts[idx].front) continue;
+        const a = (1 + k / 5);
+        actx.strokeStyle = `rgba(255,238,190,${0.9 * a})`;
+        actx.lineWidth = (d.primary ? 3 : 2.2) * dpr;
+        actx.beginPath();
+        actx.moveTo(pts[idx - 1].x, pts[idx - 1].y);
+        actx.lineTo(pts[idx].x, pts[idx].y);
+        actx.stroke();
+      }
+      // marcador destino
+      const pe = project(d.lat, d.lng);
+      if (pe.front) dot(pe.x, pe.y, d.primary ? 4.2 : 3.2, d.primary ? '#FFE9B0' : '#C98A3A', d.primary);
+    });
+
+    // marcador origem (pulsante)
+    const po = project(ORIGIN.lat, ORIGIN.lng);
+    if (po.front) {
+      const pulse = (Math.sin(now / 600) + 1) / 2;
+      actx.beginPath();
+      actx.fillStyle = `rgba(232,200,121,${0.18 + pulse * 0.18})`;
+      actx.arc(po.x, po.y, (8 + pulse * 7) * dpr, 0, Math.PI * 2);
+      actx.fill();
+      dot(po.x, po.y, 5 * dpr / dpr * 1.0, '#FFF1C8', true);
+      dot(po.x, po.y, 5, '#F4D77E', true);
+    }
+
+    if (DEBUG) {
+      [ORIGIN, ...DESTS].forEach(p => {
+        const q = project(p.lat, p.lng);
+        if (q.front) dot(q.x, q.y, 4, '#ff3b3b', false);
+      });
+    }
+  }
+
+  function dot(x, y, r, color, glow) {
+    if (glow) { actx.shadowColor = color; actx.shadowBlur = 12 * dpr; }
+    actx.beginPath();
+    actx.fillStyle = color;
+    actx.arc(x, y, r * dpr, 0, Math.PI * 2);
+    actx.fill();
+    actx.shadowBlur = 0;
+  }
+
+  // ---- Interação (arrastar) ----
+  glCanvas.addEventListener('pointerdown', (e) => {
+    pointer = { x: e.clientX, y: e.clientY };
+    lastP = { x: e.clientX, y: e.clientY, t: Date.now() };
+    glCanvas.style.cursor = 'grabbing';
+  });
+  window.addEventListener('pointermove', (e) => {
+    if (!pointer) return;
+    const dx = e.clientX - pointer.x, dy = e.clientY - pointer.y;
+    dragPhi += dx / 300; dragTheta += dy / 600;
+    pointer = { x: e.clientX, y: e.clientY };
+    const now = Date.now();
+    if (lastP) {
+      const dt = Math.max(now - lastP.t, 1);
+      vel.phi = Math.max(-0.12, Math.min(0.12, (e.clientX - lastP.x) / dt * 0.25));
+      vel.theta = Math.max(-0.06, Math.min(0.06, (e.clientY - lastP.y) / dt * 0.06));
+    }
+    lastP = { x: e.clientX, y: e.clientY, t: now };
   }, { passive: true });
   window.addEventListener('pointerup', () => {
-    dragging = false;
-    canvas.style.cursor = 'grab';
+    pointer = null; lastP = null;
+    glCanvas.style.cursor = 'grab';
   }, { passive: true });
-  window.addEventListener('resize', resize);
 
-  const img = new Image();
-  img.onload = () => {
-    resize();
-    landPoints = buildLandPoints(img);
-    canvas.style.opacity = '1';
-    draw();
-  };
-  img.src = mapSrc;
+  window.addEventListener('resize', () => { resize(); });
 })();
 </script>
 </body>
